@@ -21,64 +21,54 @@ if 'alerts' not in st.session_state:
 if 'monitoring' not in st.session_state:
     st.session_state.monitoring = False
 
+if 'blocked_count' not in st.session_state:
+    st.session_state.blocked_count = 0
+
 # --- Sidebar ---
 st.sidebar.title("NIDS Control Panel")
 mode = st.sidebar.radio("Operation Mode", ["Live Sniffing", "Simulated Traffic"])
 is_simulated = (mode == "Simulated Traffic")
 
-if st.sidebar.button("Start Real-Time Monitoring"):
+# Active Response Toggle
+active_response = st.sidebar.toggle("Enable Active Response (IPS Mode)", value=True)
+
+if st.sidebar.button("Start Monitoring"):
     if not st.session_state.monitoring:
         st.session_state.sniffer.start(simulated=is_simulated)
         st.session_state.monitoring = True
-        st.sidebar.success(f"Monitoring active ({mode})")
 
 if st.sidebar.button("Stop Monitoring"):
     if st.session_state.monitoring:
         st.session_state.sniffer.stop()
         st.session_state.monitoring = False
-        st.sidebar.warning("Monitoring stopped")
-
-if is_simulated and st.session_state.monitoring:
-    if st.sidebar.button("🔥 Simulate Attack Spike"):
-        # We can directly inject a spike into the sniffer's count
-        with st.session_state.sniffer.lock:
-            st.session_state.sniffer.packet_count += 500
-        st.sidebar.error("Attack spike injected!")
 
 st.sidebar.divider()
-st.sidebar.info("""
-**System Info**
-- Tech: Streamlit, Scapy, NumPy
-- Method: Statistical Anomaly Detection
-- Status: Volume-based Detection
-""")
+if is_simulated and st.session_state.monitoring:
+    st.sidebar.subheader("Attack Simulations")
+    if st.sidebar.button("🔍 Simulate Port Scan"):
+        st.session_state.sniffer.set_attack_mode('port_scan')
+    if st.sidebar.button("🌊 Simulate SYN Flood"):
+        st.session_state.sniffer.set_attack_mode('syn_flood')
+    if st.sidebar.button("✅ Reset Traffic"):
+        st.session_state.sniffer.set_attack_mode(None)
+
+st.sidebar.divider()
+st.sidebar.info(f"Blocked IPs: {st.session_state.blocked_count}")
+if st.sidebar.button("Clear Blocklist"):
+    st.session_state.sniffer.blocked_ips.clear()
+    st.session_state.blocked_count = 0
 
 # --- Main UI ---
-st.title("🛡️ AI-Based Network Intrusion Detection System")
+st.title("🛡️ AI-Based Network Intrusion Detection & Prevention System")
 
 # Top Metrics
 m1, m2, m3, m4 = st.columns(4)
 packet_metric = m1.empty()
 attack_metric = m2.empty()
-avg_size_metric = m3.empty()
+block_metric = m3.empty()
 status_metric = m4.empty()
 
-# Layout
-col_main, col_side = st.columns([2, 1])
-
-with col_main:
-    st.subheader("Traffic Volume (Packets/sec)")
-    chart_placeholder = st.empty()
-    
-    st.subheader("Security Incident Logs")
-    log_placeholder = st.empty()
-
-with col_side:
-    st.subheader("Protocol Distribution")
-    proto_chart_placeholder = st.empty()
-    
-    st.subheader("Top IP Addresses")
-    ip_table_placeholder = st.empty()
+# ... (Layout remains same)
 
 # --- Real-Time Loop ---
 if st.session_state.monitoring:
@@ -87,10 +77,16 @@ if st.session_state.monitoring:
         count = stats['count']
         
         # Detect Anomaly
-        is_anomaly, threshold = st.session_state.detector.check_anomaly(count)
-        if is_anomaly:
-            alert = st.session_state.detector.get_alert_message(count, threshold)
-            st.session_state.alerts.append(alert)
+        is_vol, is_scan, threshold, target_ip = st.session_state.detector.check_anomaly(count, stats['ips'])
+        
+        if is_vol:
+            st.session_state.alerts.append(st.session_state.detector.get_alert_message("volume", count, threshold))
+        
+        if is_scan:
+            st.session_state.alerts.append(st.session_state.detector.get_alert_message("scan", count, ip=target_ip))
+            if active_response and target_ip:
+                st.session_state.sniffer.block_ip(target_ip)
+                st.session_state.blocked_count = len(st.session_state.sniffer.blocked_ips)
         
         # Update History
         st.session_state.traffic_history.append(count)
@@ -100,8 +96,9 @@ if st.session_state.monitoring:
         # Update UI Metrics
         packet_metric.metric("Current Traffic", f"{count} pkts/s")
         attack_metric.metric("Total Alerts", len(st.session_state.alerts))
-        avg_size_metric.metric("Avg Packet Size", f"{stats['avg_size']:.1f} bytes")
-        status_metric.metric("System Status", "SECURE" if not is_anomaly else "ATTACK", delta=None if not is_anomaly else "ALERT")
+        block_metric.metric("Blocked IPs", st.session_state.blocked_count)
+        sys_status = "SECURE" if not (is_vol or is_scan) else "ATTACK"
+        status_metric.metric("System Status", sys_status, delta=None if sys_status == "SECURE" else "ALERT")
 
         # Update Charts
         chart_placeholder.line_chart(st.session_state.traffic_history)

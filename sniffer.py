@@ -11,16 +11,22 @@ class PacketSniffer:
         self.protocols = Counter()
         self.ips = Counter()
         self.packet_sizes = []
+        self.blocked_ips = set()
         self.lock = threading.Lock()
+        self.attack_mode = None # Options: 'port_scan', 'syn_flood'
 
     def _packet_callback(self, packet):
         if not self.sniffing:
             return
         
         with self.lock:
-            self.packet_count += 1
             if packet.haslayer(IP):
-                self.ips[packet[IP].src] += 1
+                src_ip = packet[IP].src
+                if src_ip in self.blocked_ips:
+                    return # Drop packet from blocked IP
+
+                self.packet_count += 1
+                self.ips[src_ip] += 1
                 self.ips[packet[IP].dst] += 1
                 
                 if packet.haslayer(TCP):
@@ -53,15 +59,50 @@ class PacketSniffer:
             print(f"Error sniffing: {e}")
             self.sniffing = False
 
+    def set_attack_mode(self, mode):
+        with self.lock:
+            self.attack_mode = mode
+
+    def block_ip(self, ip):
+        with self.lock:
+            self.blocked_ips.add(ip)
+
     def _run_simulated(self):
         import random
         while self.sniffing:
             time.sleep(random.uniform(0.01, 0.1))
             with self.lock:
-                self.packet_count += 1
-                self.protocols[random.choice(['TCP', 'UDP', 'Other'])] += 1
-                self.ips[f"192.168.1.{random.randint(1, 254)}"] += 1
-                self.packet_sizes.append(random.randint(40, 1500))
+                mode = self.attack_mode
+                
+                # Normal background noise
+                src_ip = f"192.168.1.{random.randint(1, 254)}"
+                if src_ip in self.blocked_ips: continue
+
+                if mode == 'port_scan':
+                    # One IP hitting many "virtual" targets or ports
+                    attacker_ip = "10.0.0.99"
+                    if attacker_ip not in self.blocked_ips:
+                        for _ in range(10): # Rapid fire
+                            self.packet_count += 1
+                            self.ips[attacker_ip] += 1
+                            self.protocols['TCP'] += 1
+                    
+                elif mode == 'syn_flood':
+                    # Many random IPs flooding with small TCP packets
+                    for _ in range(20):
+                        fake_ip = f"attacker-{random.randint(1, 1000)}"
+                        self.packet_count += 1
+                        self.ips[fake_ip] += 1
+                        self.protocols['TCP'] += 1
+                        self.packet_sizes.append(64) # Small SYN packets
+
+                else:
+                    # Default simulation
+                    self.packet_count += 1
+                    self.protocols[random.choice(['TCP', 'UDP', 'Other'])] += 1
+                    self.ips[src_ip] += 1
+                    self.packet_sizes.append(random.randint(40, 1500))
+
                 if len(self.packet_sizes) > 1000:
                     self.packet_sizes.pop(0)
 
@@ -74,8 +115,8 @@ class PacketSniffer:
                 "count": self.packet_count,
                 "protocols": dict(self.protocols),
                 "ips": dict(self.ips.most_common(10)),
+                "blocked": list(self.blocked_ips),
                 "avg_size": sum(self.packet_sizes) / len(self.packet_sizes) if self.packet_sizes else 0
             }
-            # Reset count for interval-based tracking
-            self.packet_count = 0
+            self.packet_count = 0 # Interval-based
             return stats
