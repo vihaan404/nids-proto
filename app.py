@@ -20,7 +20,6 @@ if 'alerts' not in st.session_state:
     st.session_state.alerts = []
 if 'monitoring' not in st.session_state:
     st.session_state.monitoring = False
-
 if 'blocked_count' not in st.session_state:
     st.session_state.blocked_count = 0
 
@@ -68,7 +67,22 @@ attack_metric = m2.empty()
 block_metric = m3.empty()
 status_metric = m4.empty()
 
-# ... (Layout remains same)
+# Layout
+col_main, col_side = st.columns([2, 1])
+
+with col_main:
+    st.subheader("Traffic Volume (Packets/sec)")
+    chart_placeholder = st.empty()
+    
+    st.subheader("Security Incident Logs")
+    log_placeholder = st.empty()
+
+with col_side:
+    st.subheader("Protocol Distribution")
+    proto_chart_placeholder = st.empty()
+    
+    st.subheader("Top IP Addresses")
+    ip_table_placeholder = st.empty()
 
 # --- Real-Time Loop ---
 if st.session_state.monitoring:
@@ -107,7 +121,7 @@ if st.session_state.monitoring:
             proto_df = pd.DataFrame(list(stats['protocols'].items()), columns=['Protocol', 'Count'])
             fig = px.pie(proto_df, values='Count', names='Protocol', hole=.3)
             fig.update_layout(margin=dict(l=0, r=0, t=0, b=0), height=200)
-            proto_chart_placeholder.plotly_chart(fig, use_container_width=True)
+            proto_chart_placeholder.plotly_chart(fig, use_container_width=True, key=f"proto_chart_{time.time()}")
             
         if stats['ips']:
             ip_df = pd.DataFrame(list(stats['ips'].items()), columns=['IP Address', 'Count'])
@@ -116,13 +130,12 @@ if st.session_state.monitoring:
         # Update Logs
         if st.session_state.alerts:
             log_df = pd.DataFrame(st.session_state.alerts).tail(10)
-            # Reorder columns for better display
             log_df = log_df[['time', 'type', 'severity', 'message']]
             log_placeholder.dataframe(log_df, use_container_width=True)
         
         time.sleep(1)
 else:
-    st.info("Click 'Start Real-Time Monitoring' in the sidebar to begin.")
+    st.info("Click 'Start Monitoring' in the sidebar to begin.")
     # Show static data if any
     if st.session_state.traffic_history:
         chart_placeholder.line_chart(st.session_state.traffic_history)
