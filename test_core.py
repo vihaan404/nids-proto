@@ -5,7 +5,8 @@ import random
 
 def test_detector():
     print("Testing Anomaly Detector...")
-    detector = AnomalyDetector(window_size=10, threshold_sigma=2)
+    # Using low thresholds for testing purposes to trigger the alert
+    detector = AnomalyDetector(window_size=10, threshold_sigma=2, min_packets=50)
     
     # Simulate normal traffic
     for _ in range(10):
@@ -13,7 +14,7 @@ def test_detector():
         is_anomaly, threshold = detector.check_anomaly(val)
         print(f"Val: {val}, Threshold: {threshold:.2f}, Anomaly: {is_anomaly}")
     
-    # Simulate a spike
+    # Simulate a spike that exceeds the min_packets (50)
     spike = 100
     is_anomaly, threshold = detector.check_anomaly(spike)
     print(f"SPIKE: {spike}, Threshold: {threshold:.2f}, Anomaly: {is_anomaly}")
